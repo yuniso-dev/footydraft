@@ -200,11 +200,55 @@
       <div class="rng"><input type="range" id="gTimer" min="10" max="120" step="5"><span class="val" id="gTimerV"></span></div></div>
     <div class="fld"><label>No repeat clubs on the wheel</label><div class="seg" id="gRepeat"></div></div>
     <div class="fld"><label>Wheel leagues</label><div class="checks" id="gLeagues"></div></div>
+    <div class="fld"><label>Player database</label>
+      <button class="btn" id="gData" style="width:100%">&#128190; Import / Export Players&hellip;</button>
+      <div id="gDataStatus" style="font-size:11px;color:var(--muted);margin-top:5px"></div>
+    </div>
     <div class="modactions">
       <button class="btn danger" id="gReset">Reset Draft</button>
       <div class="right">
         <button class="btn" id="gCancel">Cancel</button>
         <button class="btn gold" id="gSave">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- import/export player database modal -->
+<div class="modal" id="dModal">
+  <div class="sheet" style="width:640px">
+    <h2 class="cond">Import / Export Players</h2>
+    <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:10px">
+      Paste a database below. One <b>club header</b> per block, then one player per line.
+      Prefix a name with <b>@</b> to tag them as a current-squad member.<br>
+      Valid positions: GK, RB, LB, CB, RWB, LWB, CDM, CM, CAM, RM, LM, RW, LW, ST.
+      <pre style="background:#000;border:1px solid var(--line);border-radius:6px;padding:8px;margin:8px 0;overflow:auto;color:#cfcfcf;font-size:11px"># Real Madrid
+Zinedine Zidane: CAM, CM
+@Vinícius Júnior: LW, ST
+
+# Barcelona
+Lionel Messi: RW, CAM, ST</pre>
+      A club header may be written <code>#&nbsp;Club</code> or <code>[Club]</code>. JSON of the
+      form <code>{"Club":"Name:POS|@Name:POS"}</code> is also accepted. Unknown clubs are reported and skipped.
+    </div>
+    <div class="fld" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--muted)">Mode</span>
+      <div class="seg" id="dMode"></div>
+      <span style="font-size:11px;color:var(--muted)" id="dModeHint"></span>
+    </div>
+    <textarea id="dText" spellcheck="false" style="width:100%;height:220px;background:#000;border:1px solid var(--line);
+      color:#e8e8e8;border-radius:8px;padding:10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;resize:vertical"
+      placeholder="# Real Madrid&#10;Zinedine Zidane: CAM, CM&#10;..."></textarea>
+    <div id="dStatus" style="font-size:12px;margin:8px 0;min-height:18px"></div>
+    <div class="modactions">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="dLoad">Load Current &darr;</button>
+        <button class="btn" id="dCopy">Copy</button>
+        <button class="btn danger" id="dRestore">Restore Built-in</button>
+      </div>
+      <div class="right">
+        <button class="btn" id="dCancel">Close</button>
+        <button class="btn gold" id="dImport">Import</button>
       </div>
     </div>
   </div>
@@ -355,14 +399,31 @@ function customCrest(size){
 }
 
 /* ================= PARSE PLAYERS ================= */
-const PLAYERS={};
-for(const club in DB){
-  PLAYERS[club]=DB[club].split('|').map(t=>t.trim()).filter(Boolean).map(t=>{
-    let cur=false; if(t[0]==='@'){cur=true;t=t.slice(1);}
-    const i=t.lastIndexOf(':');
-    const name=t.slice(0,i).trim();
-    const pos=t.slice(i+1).split(',').map(x=>x.trim()).filter(Boolean);
-    return {name,pos,current:cur,club};
+const VALID_POS = new Set(["GK","RB","LB","CB","RWB","LWB","CDM","CM","CAM","RM","LM","RW","LW","ST"]);
+const PLAYERS={}; // {club: [{name,pos,current,club}]}  — rebuilt from DB + state.customDB
+function parseClubString(str){
+  return String(str||'').split('|').map(t=>t.trim()).filter(Boolean)
+    .filter(t=>!t.startsWith('//')).map(t=>{
+      let cur=false; if(t[0]==='@'){cur=true;t=t.slice(1).trim();}
+      const i=t.lastIndexOf(':');
+      const name=(i>=0?t.slice(0,i):t).trim();
+      const pos=(i>=0?t.slice(i+1):'').split(',').map(x=>x.trim().toUpperCase()).filter(Boolean);
+      return {name,pos,current:cur};
+    }).filter(p=>p.name);
+}
+function currentPipe(club){ // effective source string for a club
+  const c=(state&&state.customDB)||{};
+  return (c[club]!=null)?c[club]:(DB[club]||'');
+}
+function rebuildPlayers(){
+  for(const k in PLAYERS) delete PLAYERS[k];
+  CLUBS.forEach(c=>{
+    const seen=new Set(); const list=[];
+    parseClubString(currentPipe(c.name)).forEach(p=>{
+      const k=p.name.toLowerCase(); if(seen.has(k))return; seen.add(k);
+      p.club=c.name; list.push(p);
+    });
+    PLAYERS[c.name]=list;
   });
 }
 function eligible(label,posArr){ if(label==='B') return true; const set=ELIG[label]||[]; return posArr.some(p=>set.includes(p)); }
@@ -386,7 +447,7 @@ function freshState(){
   const s=defaultSettings();
   const squads=[];
   for(let i=0;i<s.numSquads;i++) squads.push(newSquad('Team '+(i+1),s.defaultFormation,s.benchCount));
-  return {settings:s, squads, activeClub:null, spun:[], clock:0, round:1, dir:1, undo:[]};
+  return {settings:s, squads, activeClub:null, spun:[], clock:0, round:1, dir:1, undo:[], customDB:null};
 }
 function load(){
   try{ const raw=localStorage.getItem(KEY); if(raw){ state=JSON.parse(raw);
@@ -758,8 +819,8 @@ function fallbackCopy(txt,done){
 }
 $('#copyBtn').addEventListener('click',copyPrompt);
 $('#undoBtn').addEventListener('click',doUndo);
-$('#resetBtn').addEventListener('click',()=>{ if(confirm('Reset the entire draft and settings?')){
-  localStorage.removeItem(KEY); state=freshState(); save(); render(); syncSpinPill();
+$('#resetBtn').addEventListener('click',()=>{ if(confirm('Reset the entire draft and settings? (This also restores the built-in player database.)')){
+  localStorage.removeItem(KEY); state=freshState(); rebuildPlayers(); save(); render(); syncSpinPill();
   $('#spinCode').textContent='—'; const pill=$('#spinPill');
   pill.style.background='#000';pill.style.color='#fff';pill.style.borderColor='var(--line)';
 }});
@@ -861,10 +922,132 @@ function setBench(sq,n){
 $('#globalGear').addEventListener('click',openGlobal);
 $('#gCancel').addEventListener('click',closeModals);
 $('#gSave').addEventListener('click',saveGlobal);
-$('#gReset').addEventListener('click',()=>{ if(confirm('Reset the entire draft?')){
-  closeModals(); localStorage.removeItem(KEY); state=freshState(); save(); render(); syncSpinPill();
+$('#gReset').addEventListener('click',()=>{ if(confirm('Reset the entire draft? (This also restores the built-in player database.)')){
+  closeModals(); localStorage.removeItem(KEY); state=freshState(); rebuildPlayers(); save(); render(); syncSpinPill();
   $('#spinCode').textContent='—'; const pill=$('#spinPill');
   pill.style.background='#000';pill.style.color='#fff';pill.style.borderColor='var(--line)'; }});
+$('#gData').addEventListener('click',openData);
+function refreshDataStatus(){
+  const el=$('#gDataStatus'); if(!el) return;
+  const total=CLUBS.reduce((n,c)=>n+(PLAYERS[c.name]?PLAYERS[c.name].length:0),0);
+  const custom=state.customDB?Object.keys(state.customDB).length:0;
+  el.textContent=`${total} players across ${CLUBS.length} clubs`+(custom?` · ${custom} club(s) customised`:' · built-in database');
+}
+
+/* ================= IMPORT / EXPORT PLAYERS ================= */
+// Build a lookup: normalized club name -> canonical, with common aliases
+const norm = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+  .replace(/[^a-z0-9]/g,'');
+const CLUB_LOOKUP={};
+CLUBS.forEach(c=>{ CLUB_LOOKUP[norm(c.name)]=c.name; });
+[["atleticomadrid","Atlético Madrid"],["atletico","Atlético Madrid"],["inter","Inter Milan"],
+ ["internazionale","Inter Milan"],["intermilan","Inter Milan"],["mancity","Manchester City"],
+ ["mcfc","Manchester City"],["manunited","Manchester United"],["manutd","Manchester United"],
+ ["mufc","Manchester United"],["spurs","Tottenham"],["tottenhamhotspur","Tottenham"],
+ ["bayern","Bayern Munich"],["fcbayern","Bayern Munich"],["dortmund","Borussia Dortmund"],
+ ["bvb","Borussia Dortmund"],["leverkusen","Bayer Leverkusen"],["leipzig","RB Leipzig"],
+ ["rbleipzig","RB Leipzig"],["sporting","Sporting CP"],["sportinglisbon","Sporting CP"],
+ ["athletic","Athletic Bilbao"],["athleticclub","Athletic Bilbao"],["bilbao","Athletic Bilbao"],
+ ["acmilan","AC Milan"],["milan","AC Milan"],["asroma","Roma"],["sslazio","Lazio"],
+ ["realsociedad","Real Sociedad"],["olympiquedemarseille","Marseille"],["om","Marseille"],
+ ["asmonaco","Monaco"],["parissaintgermain","PSG"],["parissg","PSG"],["slbenfica","Benfica"],
+ ["fcporto","Porto"],["ajaxamsterdam","Ajax"],["afcajax","Ajax"],["newcastle","Newcastle United"],
+ ["astonvilla","Aston Villa"],["villa","Aston Villa"]
+].forEach(([k,v])=>{ if(!CLUB_LOOKUP[k]) CLUB_LOOKUP[k]=v; });
+
+function parseImport(text){
+  const res={db:{}, players:0, clubs:0, unknown:[], warnings:0, badPos:new Set()};
+  text=text.trim();
+  if(!text) return res;
+  // JSON object form
+  if(text[0]==='{'){
+    let obj; try{ obj=JSON.parse(text); }catch(e){ res.error='Invalid JSON: '+e.message; return res; }
+    for(const rawClub in obj){
+      const canon=CLUB_LOOKUP[norm(rawClub)];
+      if(!canon){ res.unknown.push(rawClub); continue; }
+      let val=obj[rawClub];
+      if(Array.isArray(val)) val=val.join('|');
+      res.db[canon]=String(val);
+    }
+  } else {
+    // block form: "# Club" or "[Club]" headers, then "Name: POS, POS" lines
+    let cur=null; const buckets={};
+    text.split(/\r?\n/).forEach(rawLine=>{
+      let line=rawLine.replace(/\/\/.*$/,'').trim();
+      if(!line) return;
+      let m=line.match(/^#+\s*(.+)$/)||line.match(/^\[(.+)\]$/);
+      if(m){
+        const canon=CLUB_LOOKUP[norm(m[1])];
+        if(canon){ cur=canon; buckets[cur]=buckets[cur]||[]; }
+        else { res.unknown.push(m[1].trim()); cur=null; }
+        return;
+      }
+      if(!cur) return; // player line with no club header yet
+      buckets[cur].push(line.replace(/\s*:\s*/,':'));
+    });
+    for(const club in buckets) res.db[club]=buckets[club].join('|');
+  }
+  // validate & count
+  for(const club in res.db){
+    const arr=parseClubString(res.db[club]);
+    if(!arr.length){ delete res.db[club]; continue; }
+    arr.forEach(p=>{ p.pos.forEach(x=>{ if(!VALID_POS.has(x)){res.warnings++;res.badPos.add(x);} }); });
+    res.players+=arr.length;
+  }
+  res.clubs=Object.keys(res.db).length;
+  return res;
+}
+let dMode='overwrite';
+function openData(){
+  dMode='overwrite';
+  seg($('#dMode'),[{label:'Overwrite club',val:'overwrite'},{label:'Append',val:'append'}],dMode,v=>{dMode=v;updateModeHint();});
+  updateModeHint();
+  $('#dText').value=''; $('#dStatus').textContent=''; $('#dStatus').style.color='var(--muted)';
+  refreshDataStatus();
+  $('#dModal').classList.add('open');
+}
+function updateModeHint(){
+  $('#dModeHint').textContent = dMode==='overwrite'
+    ? 'A pasted club replaces that club’s whole roster; other clubs are untouched.'
+    : 'Pasted players are added to each club’s existing roster (duplicates by name are dropped).';
+}
+function exportText(){
+  let out='';
+  CLUBS.forEach(c=>{
+    const arr=PLAYERS[c.name]||[]; if(!arr.length) return;
+    out+='# '+c.name+'\n';
+    arr.forEach(p=>{ out+=(p.current?'@':'')+p.name+': '+p.pos.join(', ')+'\n'; });
+    out+='\n';
+  });
+  return out.trim()+'\n';
+}
+$('#dLoad').addEventListener('click',()=>{ $('#dText').value=exportText();
+  $('#dStatus').style.color='var(--muted)'; $('#dStatus').textContent='Loaded current database into the box — edit and Import, or Copy it.'; });
+$('#dCopy').addEventListener('click',()=>{ const t=$('#dText').value||exportText(); $('#dText').value=t;
+  const done=()=>toast('Copied!'); if(navigator.clipboard&&navigator.clipboard.writeText)
+    navigator.clipboard.writeText(t).then(done).catch(()=>fallbackCopy(t,done)); else fallbackCopy(t,done); });
+$('#dRestore').addEventListener('click',()=>{ if(confirm('Discard all imported players and restore the built-in database?')){
+  state.customDB=null; rebuildPlayers(); save(); render(); refreshDataStatus();
+  $('#dStatus').style.color='var(--gold2)'; $('#dStatus').textContent='Built-in database restored.'; }});
+$('#dCancel').addEventListener('click',closeModals);
+$('#dImport').addEventListener('click',()=>{
+  const st=$('#dStatus');
+  const r=parseImport($('#dText').value);
+  if(r.error){ st.style.color='var(--red)'; st.textContent=r.error; return; }
+  if(!r.clubs && !r.unknown.length){ st.style.color='var(--red)'; st.textContent='Nothing to import — check the format.'; return; }
+  if(!r.clubs){ st.style.color='var(--red)'; st.textContent='No known clubs found. Unrecognised: '+r.unknown.join(', '); return; }
+  const cdb=state.customDB?Object.assign({},state.customDB):{};
+  Object.keys(r.db).forEach(club=>{
+    if(dMode==='append'){ const base=currentPipe(club); cdb[club]=base?base+'|'+r.db[club]:r.db[club]; }
+    else cdb[club]=r.db[club];
+  });
+  state.customDB=cdb; rebuildPlayers(); save(); render(); refreshDataStatus();
+  let msg=`Imported ${r.players} players across ${r.clubs} club(s).`;
+  if(r.warnings) msg+=` ${r.warnings} unknown position tag(s) ignored (${[...r.badPos].join(', ')}).`;
+  if(r.unknown.length) msg+=` Skipped unknown club(s): ${r.unknown.join(', ')}.`;
+  st.style.color=r.unknown.length?'var(--gold2)':'var(--gold2)'; st.textContent=msg;
+  toast('Imported '+r.players+' players');
+});
 
 /* ================= SQUAD MODAL ================= */
 let sIdx=-1, sDraft;
@@ -899,6 +1082,7 @@ document.querySelectorAll('.modal').forEach(m=>m.addEventListener('mousedown',e=
 /* ================= INIT ================= */
 window.addEventListener('resize',()=>{ if(P){} });
 load();
+rebuildPlayers();
 $('#muteBtn').innerHTML=state.settings.muted?'&#128263;':'&#128266;';
 render();
 syncSpinPill();
