@@ -143,12 +143,23 @@ def resolve_qid(name, hint):
     if name in QIDS:
         return QIDS[name]
     params = {"action": "wbsearchentities", "search": hint, "language": "en",
-              "type": "item", "format": "json", "limit": 8}
+              "type": "item", "format": "json", "limit": 10}
     data = http_get(API + "?" + urllib.parse.urlencode(params))
     hits = data.get("search", [])
+    # Skip women's / reserve / youth / B sides so we get the men's first team.
+    BAD = ("women", "féminin", "femenino", "reserve", "youth", "under-", " b ",
+           " ii", "academy", "futsal")
+    def is_bad(desc):
+        d = " " + desc.lower() + " "
+        return any(b in d for b in BAD)
     for it in hits:
         d = (it.get("description") or "").lower()
+        if is_bad(d):
+            continue
         if "football club" in d or "soccer club" in d or "association football" in d:
+            return it["id"]
+    for it in hits:                      # fall back to first non-women's hit
+        if not is_bad(it.get("description") or ""):
             return it["id"]
     return hits[0]["id"] if hits else None
 
