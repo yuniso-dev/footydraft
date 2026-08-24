@@ -75,6 +75,10 @@
     border:1.5px solid var(--line2);min-width:74px;text-align:center;background:rgba(0,0,0,.35)}
   .pill .lbl{font-size:9px;opacity:.65;display:block;letter-spacing:.16em;font-weight:600}
   .hero-hint{color:var(--muted);font-size:13px;margin-left:auto;max-width:320px;text-align:right}
+  .heroctrls{margin-left:auto;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .ctl{display:flex;flex-direction:column;gap:4px}
+  .ctl-lbl{font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+  .seg.small button{padding:6px 12px;font-size:12px}
   .link{font-size:13px}
 
   /* ---------- board ---------- */
@@ -164,7 +168,9 @@
     color:#fff;padding:11px 13px;border-radius:11px;font-size:14px}
   #panel .search:focus{outline:none;border-color:var(--blue)}
   .clublabel{font-size:10px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;padding:0 16px 5px}
-  .clubpick{display:flex;gap:6px;overflow-x:auto;padding:0 16px 10px;scrollbar-width:thin}
+  .clubpick{display:flex;gap:6px;overflow-x:auto;padding:0 16px 10px;scrollbar-width:none;-ms-overflow-style:none;cursor:grab;user-select:none}
+  .clubpick::-webkit-scrollbar{display:none}
+  .clubpick.dragging{cursor:grabbing}
   .cchip{flex:none;display:inline-flex;align-items:center;gap:5px;background:var(--card2);border:1px solid var(--line);
     border-radius:999px;padding:4px 10px 4px 6px;font-size:12px;font-weight:700;color:var(--ink);white-space:nowrap}
   .cchip:hover{border-color:var(--line2)}
@@ -238,7 +244,13 @@
     <div class="pill" id="spinPill"><span class="lbl">RESULT</span><span id="spinCode">&mdash;</span></div>
     <a id="showAllClubs" class="link" style="display:none">Show all clubs</a>
   </div>
-  <div class="hero-hint">Spin to lock a club, then fill each slot with its legends. Or add any player manually.</div>
+  <div class="heroctrls">
+    <div class="ctl"><span class="ctl-lbl">Mode</span>
+      <div class="seg small" id="modeSeg"></div></div>
+    <div class="ctl"><span class="ctl-lbl">Bench (all)</span>
+      <div class="stepper"><button class="stepbtn" id="benchMinus">&minus;</button>
+        <span id="benchLbl">0</span><button class="stepbtn" id="benchPlus">+</button></div></div>
+  </div>
 </section>
 
 <div id="board"></div>
@@ -466,7 +478,13 @@ const FORMATIONS = {
   "3-4-3":["LW","ST","RW","LM","LCM","RCM","RM","CB","CB","CB","GK"],
   "5-3-2":["ST","ST","LCM","CM","RCM","LWB","CB","CB","CB","RWB","GK"],
   "4-1-4-1":["ST","LW","CAM","CAM","RW","CDM","LB","CB","CB","RB","GK"],
-  // 5-a-side (quick mode): 4 outfield + GK
+  // 6-a-side (quick mode): 5 outfield + GK
+  "6-a-side 2-1-2":["ST","ST","CM","CB","CB","GK"],
+  "6-a-side 1-2-2":["ST","ST","LM","RM","CB","GK"],
+  "6-a-side 2-2-1":["ST","LM","RM","CB","CB","GK"],
+  "6-a-side 3-1-1":["ST","CM","CB","CB","CB","GK"],
+  "6-a-side 1-3-1":["ST","LM","CM","RM","CB","GK"],
+  // legacy 5-a-side (kept so old saves don't break; hidden from the picker)
   "5-a-side 1-2-1":["ST","LM","RM","CB","GK"],
   "5-a-side 2-2":["ST","ST","CB","CB","GK"],
   "5-a-side 1-1-2":["ST","ST","CM","CB","GK"],
@@ -474,10 +492,13 @@ const FORMATIONS = {
   "5-a-side 3-1":["ST","LB","CB","RB","GK"],
 };
 const FORM_KEYS = Object.keys(FORMATIONS);
+const DEF_11="4-2-3-1", DEF_6="6-a-side 2-1-2";
 const FORM_GROUPS = {
-  "11-a-side": FORM_KEYS.filter(k=>!k.startsWith("5-a-side")),
-  "5-a-side (quick)": FORM_KEYS.filter(k=>k.startsWith("5-a-side")),
+  "11-a-side": FORM_KEYS.filter(k=>!k.startsWith("5-a-side")&&!k.startsWith("6-a-side")),
+  "6-a-side (5 + GK)": FORM_KEYS.filter(k=>k.startsWith("6-a-side")),
 };
+function FL(key){ return FORMATIONS[key]||FORMATIONS[DEF_11]; }
+function modeOf(key){ return String(key).startsWith("6-a-side")?"6":"11"; }
 function formOptions(current){
   return Object.entries(FORM_GROUPS).map(([g,keys])=>
     `<optgroup label="${g}">`+keys.map(f=>`<option${f===current?' selected':''}>${f}</option>`).join('')+`</optgroup>`
@@ -581,7 +602,7 @@ function defaultSettings(){
     allowDup:false, timerLen:45, noRepeat:true, useLogos:true, muted:false, leagues};
 }
 function newSquad(name,form,bench){
-  const f=FORMATIONS[form];
+  const f=FL(form);
   return {name, formation:form, benchCount:bench,
     field:f.map(l=>({label:l,player:null,locked:false})),
     bench:Array.from({length:bench},()=>({label:'B',player:null,locked:false})),
@@ -600,8 +621,15 @@ function load(){
     if(!('dir'in state)) state.dir=1; if(!state.undo) state.undo=[];
     if(state.settings.useLogos===undefined) state.settings.useLogos=true;
     if(!state.migv3){ state.settings.noRepeat=true; state.migv2=state.migv3=true; } // enforce no-repeat
+    sanitizeFormations();
     return; } }catch(e){}
   state=freshState(); state.migv2=state.migv3=true;
+}
+function sanitizeFormations(){
+  if(!FORMATIONS[state.settings.defaultFormation]) state.settings.defaultFormation=DEF_11;
+  state.squads.forEach(sq=>{
+    if(!FORMATIONS[sq.formation]){ remapFormation(sq,DEF_11); }
+  });
 }
 function save(){ try{ localStorage.setItem(KEY,JSON.stringify(state)); }catch(e){} }
 
@@ -636,6 +664,8 @@ function render(){
   state.squads.forEach((sq,si)=>board.appendChild(renderSquad(sq,si)));
   renderTurn();
   syncSpinPill();
+  renderModeSeg();
+  syncBenchLbl();
 }
 function renderSquad(sq,si){
   const wrap=document.createElement('div');
@@ -750,7 +780,7 @@ function placeUnassigned(si,pi){
 /* ================= FORMATION REMAP ================= */
 function remapFormation(sq,newForm){
   const oldFilled=sq.field.filter(s=>s.player).map(s=>({label:s.label,player:s.player,locked:s.locked}));
-  const nf=FORMATIONS[newForm];
+  const nf=FL(newForm);
   sq.formation=newForm;
   sq.field=nf.map(l=>({label:l,player:null,locked:false}));
   const pool=oldFilled.slice();
@@ -950,6 +980,44 @@ function bumpTimer(d){ let v=state.settings.timerLen+d; v=Math.max(10,Math.min(1
   if(!timer.id){ $('#clock').textContent='--'; $('#clock').className='clock'; } }
 $('#timerMinus').addEventListener('click',()=>bumpTimer(-5));
 $('#timerPlus').addEventListener('click',()=>bumpTimer(5));
+
+/* ---- game mode (11 vs 6-a-side) + global bench ---- */
+function currentMode(){ return modeOf(state.settings.defaultFormation); }
+function applyMode(m){
+  if(currentMode()===m && state.squads.every(sq=>modeOf(sq.formation)===m)) return;
+  pushUndo();
+  const def = m==='6'?DEF_6:DEF_11;
+  state.settings.defaultFormation=def;
+  state.squads.forEach(sq=>{ if(modeOf(sq.formation)!==m) remapFormation(sq,def); });
+  commit();
+}
+function renderModeSeg(){
+  seg($('#modeSeg'),[{label:'11-a-side',val:'11'},{label:'6-a-side',val:'6'}],currentMode(),applyMode);
+}
+function applyBenchAll(n){
+  n=Math.max(0,Math.min(7,n)); pushUndo();
+  state.settings.benchCount=n;
+  state.squads.forEach(sq=>setBench(sq,n));
+  commit();
+}
+function syncBenchLbl(){ $('#benchLbl').textContent=state.settings.benchCount; }
+$('#benchMinus').addEventListener('click',()=>applyBenchAll(state.settings.benchCount-1));
+$('#benchPlus').addEventListener('click',()=>applyBenchAll(state.settings.benchCount+1));
+
+/* ---- drag-to-scroll for horizontal rows (club picker) ---- */
+function enableDragScroll(el){
+  let down=false,sx=0,sl=0,moved=0;
+  el.addEventListener('mousedown',e=>{ if(e.target.closest('.cchip')&&e.button!==0){} down=true;moved=0;
+    sx=e.pageX;sl=el.scrollLeft;el.classList.add('dragging'); });
+  window.addEventListener('mouseup',()=>{ down=false;el.classList.remove('dragging'); });
+  el.addEventListener('mousemove',e=>{ if(!down)return; const dx=e.pageX-sx; moved+=Math.abs(dx);
+    el.scrollLeft=sl-dx; if(Math.abs(dx)>4)e.preventDefault(); });
+  // suppress click after a drag so you don't accidentally pick a club
+  el.addEventListener('click',e=>{ if(moved>6){ e.stopPropagation();e.preventDefault(); } },true);
+  el.addEventListener('wheel',e=>{ if(e.deltaY&&!e.shiftKey){ el.scrollLeft+=e.deltaY; e.preventDefault(); } },{passive:false});
+}
+enableDragScroll($('#pClubPicker'));
+
 $('#addSquadBtn').addEventListener('click',()=>{
   if(state.squads.length>=8){ toast('Max 8 squads'); return; }
   pushUndo();
@@ -1032,7 +1100,7 @@ function pitchLayout(labels){
   return coords;
 }
 function drawPitch(svg,form){
-  const labels=FORMATIONS[form]; const co=pitchLayout(labels);
+  const labels=FL(form); const co=pitchLayout(labels);
   let s='<rect x="0" y="0" width="200" height="150" fill="#0d1f10"/>'+
     '<rect x="4" y="4" width="192" height="142" fill="none" stroke="#2e5a34" stroke-width="1"/>'+
     '<line x1="4" y1="75" x2="196" y2="75" stroke="#2e5a34" stroke-width="1"/>'+
