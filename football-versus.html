@@ -878,7 +878,7 @@ function bumpTimer(d){ let v=state.settings.timerLen+d; v=Math.max(10,Math.min(1
 $('#timerMinus').addEventListener('click',()=>bumpTimer(-5));
 $('#timerPlus').addEventListener('click',()=>bumpTimer(5));
 $('#addSquadBtn').addEventListener('click',()=>{
-  if(state.squads.length>=6){ toast('Max 6 squads'); return; }
+  if(state.squads.length>=8){ toast('Max 8 squads'); return; }
   pushUndo();
   state.squads.push(newSquad('Team '+(state.squads.length+1),state.settings.defaultFormation,state.settings.benchCount));
   state.settings.numSquads=state.squads.length; commit();
@@ -985,7 +985,7 @@ let gDraft;
 function openGlobal(){
   gDraft=JSON.parse(JSON.stringify(state.settings));
   gDraft._names=state.squads.map(s=>s.name);
-  seg($('#gNum'),[2,3,4,5,6].map(n=>({label:n,val:n})),gDraft.numSquads,v=>{gDraft.numSquads=v;renderNames();});
+  seg($('#gNum'),[2,3,4,5,6,7,8].map(n=>({label:n,val:n})),gDraft.numSquads,v=>{gDraft.numSquads=v;renderNames();});
   $('#gForm').innerHTML=FORM_KEYS.map(f=>`<option ${f===gDraft.defaultFormation?'selected':''}>${f}</option>`).join('');
   $('#gForm').onchange=e=>gDraft.defaultFormation=e.target.value;
   $('#gBench').value=gDraft.benchCount; $('#gBenchV').textContent=gDraft.benchCount;
