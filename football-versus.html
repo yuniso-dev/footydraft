@@ -466,8 +466,23 @@ const FORMATIONS = {
   "3-4-3":["LW","ST","RW","LM","LCM","RCM","RM","CB","CB","CB","GK"],
   "5-3-2":["ST","ST","LCM","CM","RCM","LWB","CB","CB","CB","RWB","GK"],
   "4-1-4-1":["ST","LW","CAM","CAM","RW","CDM","LB","CB","CB","RB","GK"],
+  // 5-a-side (quick mode): 4 outfield + GK
+  "5-a-side 1-2-1":["ST","LM","RM","CB","GK"],
+  "5-a-side 2-2":["ST","ST","CB","CB","GK"],
+  "5-a-side 1-1-2":["ST","ST","CM","CB","GK"],
+  "5-a-side 2-1-1":["ST","CM","CB","CB","GK"],
+  "5-a-side 3-1":["ST","LB","CB","RB","GK"],
 };
 const FORM_KEYS = Object.keys(FORMATIONS);
+const FORM_GROUPS = {
+  "11-a-side": FORM_KEYS.filter(k=>!k.startsWith("5-a-side")),
+  "5-a-side (quick)": FORM_KEYS.filter(k=>k.startsWith("5-a-side")),
+};
+function formOptions(current){
+  return Object.entries(FORM_GROUPS).map(([g,keys])=>
+    `<optgroup label="${g}">`+keys.map(f=>`<option${f===current?' selected':''}>${f}</option>`).join('')+`</optgroup>`
+  ).join('');
+}
 
 const ELIG = {
   GK:["GK"], LB:["LB","LWB"], LWB:["LB","LWB"], RB:["RB","RWB"], RWB:["RB","RWB"], CB:["CB"],
@@ -584,9 +599,9 @@ function load(){
     if(!state.settings||!state.squads) throw 0;
     if(!('dir'in state)) state.dir=1; if(!state.undo) state.undo=[];
     if(state.settings.useLogos===undefined) state.settings.useLogos=true;
-    if(!state.migv2){ state.settings.noRepeat=true; state.migv2=true; } // enable no-repeat once
+    if(!state.migv3){ state.settings.noRepeat=true; state.migv2=state.migv3=true; } // enforce no-repeat
     return; } }catch(e){}
-  state=freshState(); state.migv2=true;
+  state=freshState(); state.migv2=state.migv3=true;
 }
 function save(){ try{ localStorage.setItem(KEY,JSON.stringify(state)); }catch(e){} }
 
@@ -668,12 +683,10 @@ function renderRow(sq,si,kind,idx,slot){
     el.className='slot filled'+(slot.locked?' locked':'');
     el.style.background=bg; el.style.color=tc;
     el.innerHTML=`${crest(slot.player.club,22)}<span class="pname">${esc(slot.player.name)}</span>
-      <button class="lock ${slot.locked?'on':''}" title="Lock">${slot.locked?'\u{1F512}':'\u{1F513}'}</button>
       <button class="x" title="Clear">&times;</button>`;
     el.querySelector('.x').onclick=(e)=>{e.stopPropagation();pushUndo();slot.player=null;slot.locked=false;commit();};
-    el.querySelector('.lock').onclick=(e)=>{e.stopPropagation();slot.locked=!slot.locked;commit();};
-    el.style.color=tc; el.querySelectorAll('.lock,.x').forEach(b=>b.style.color=tc);
-    if(!slot.locked){ el.draggable=true; el.title='Drag to move / swap'; }
+    el.style.color=tc; el.querySelectorAll('.x').forEach(b=>b.style.color=tc);
+    el.draggable=true; el.title='Drag to move / swap';
     wireDnD(el,si,kind,idx,slot);
     row.appendChild(el);
   }else{
@@ -811,9 +824,12 @@ function selectPlayer(p){
 }
 function openCustomForm(){
   const sel=$('#pCustomClub');
-  sel.innerHTML='<option value="">No club (grey)</option>'+
-    CLUBS.map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
-  sel.value=(P&&P.club!=='ALL')?P.club:'';
+  const spun=state.activeClub;
+  const sorted=CLUBS.map(c=>c.name).sort((a,b)=>a.localeCompare(b));
+  sel.innerHTML=(spun?`<option value="${esc(spun)}">Current spun club — ${esc(spun)}</option>`:'')+
+    '<option value="">No club (grey)</option>'+
+    sorted.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  sel.value=(P&&P.club!=='ALL')?P.club:(spun||'');
   $('#pCustomName').value='';
   $('#pCreate').style.display='none';
   $('#pCustomForm').hidden=false;
@@ -861,7 +877,7 @@ function spin(){
   if(!pool.length){ toast('No leagues enabled'); return; }
   if(state.settings.noRepeat){
     let avail=pool.filter(c=>!state.spun.includes(c.name));
-    if(!avail.length){ state.spun=[]; avail=pool; }
+    if(!avail.length){ state.spun=[]; avail=pool.filter(c=>c.name!==state.activeClub); if(!avail.length)avail=pool; }
     pool=avail;
   }
   const btn=$('#spinBtn'); btn.disabled=true;
@@ -1043,7 +1059,7 @@ function openGlobal(){
   gDraft=JSON.parse(JSON.stringify(state.settings));
   gDraft._names=state.squads.map(s=>s.name);
   seg($('#gNum'),[2,3,4,5,6,7,8].map(n=>({label:n,val:n})),gDraft.numSquads,v=>{gDraft.numSquads=v;renderNames();});
-  $('#gForm').innerHTML=FORM_KEYS.map(f=>`<option ${f===gDraft.defaultFormation?'selected':''}>${f}</option>`).join('');
+  $('#gForm').innerHTML=formOptions(gDraft.defaultFormation);
   $('#gForm').onchange=e=>gDraft.defaultFormation=e.target.value;
   $('#gBench').value=gDraft.benchCount; $('#gBenchV').textContent=gDraft.benchCount;
   $('#gBench').oninput=e=>{gDraft.benchCount=+e.target.value;$('#gBenchV').textContent=e.target.value;};
@@ -1234,7 +1250,7 @@ function openSquadModal(si){
   sDraft={name:sq.name,formation:sq.formation,benchCount:sq.benchCount};
   $('#sTitle').textContent=sq.name+' — Settings';
   $('#sName').value=sq.name; $('#sName').oninput=e=>sDraft.name=e.target.value;
-  $('#sForm').innerHTML=FORM_KEYS.map(f=>`<option ${f===sq.formation?'selected':''}>${f}</option>`).join('');
+  $('#sForm').innerHTML=formOptions(sq.formation);
   $('#sForm').onchange=e=>{ sDraft.formation=e.target.value; drawPitch($('#sPitch'),sDraft.formation); };
   $('#sBench').value=sq.benchCount; $('#sBenchV').textContent=sq.benchCount;
   $('#sBench').oninput=e=>{sDraft.benchCount=+e.target.value;$('#sBenchV').textContent=e.target.value;};
