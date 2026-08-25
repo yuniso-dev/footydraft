@@ -187,9 +187,10 @@
   .pcustom{border-top:1px solid var(--line);padding:8px}
   #panel .create{width:100%;background:none;border:none;color:var(--blue2);font-weight:700;font-size:13.5px;padding:8px;border-radius:10px}
   #panel .create:hover{background:var(--card2)}
-  .customform{display:flex;gap:8px;padding:6px 6px 2px;flex-wrap:wrap}
-  .customform .search{flex:1;margin:0;width:auto;min-width:120px}
-  .cselect{background:rgba(0,0,0,.4);border:1px solid var(--line2);color:#fff;border-radius:10px;padding:0 8px;font-size:13px}
+  .customform{display:flex;flex-direction:column;gap:8px;padding:8px 6px 2px}
+  .customform .search{width:100%;margin:0}
+  .cselect{width:100%;background:rgba(0,0,0,.4);border:1px solid var(--line2);color:#fff;border-radius:10px;padding:10px 10px;font-size:14px}
+  .customform .btn.blue{align-self:stretch;justify-content:center;padding:10px}
 
   /* ---------- shared modals ---------- */
   .modal{position:fixed;inset:0;background:rgba(3,5,10,.62);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
