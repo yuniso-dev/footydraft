@@ -189,6 +189,7 @@
   .pitem.dis{opacity:.32;cursor:not-allowed}
   .pitem .nm{font-weight:600;font-size:14px}
   .pitem .meta{font-size:11px;color:var(--muted)}
+  .pmore{padding:9px 16px;font-size:11.5px;color:var(--muted);text-align:center;border-top:1px solid var(--line)}
   .pcustom{border-top:1px solid var(--line);padding:8px}
   #panel .create{width:100%;background:none;border:none;color:var(--blue2);font-weight:700;font-size:13.5px;padding:8px;border-radius:10px}
   #panel .create:hover{background:var(--card2)}
@@ -835,7 +836,7 @@ function buildList(){
   const q=$('#pSearch').value.trim().toLowerCase();
   const drafted=state.settings.allowDup?new Set():draftedSet();
   const clubs=P.club==='ALL'?CLUBS.map(c=>c.name):[P.club];
-  const items=[];
+  let items=[];
   clubs.forEach(cn=>{
     (PLAYERS[cn]||[]).forEach(p=>{
       if(!P.showAll && !eligible(P.label,p.pos)) return;
@@ -845,9 +846,12 @@ function buildList(){
       items.push({p,dis});
     });
   });
+  const CAP=60, total=items.length;
+  if(total>CAP) items=items.slice(0,CAP);   // cap DOM nodes + logo requests for speed
   P.items=items; P.hi=items.findIndex(i=>!i.dis);
   const list=$('#pList'); list.innerHTML='';
   if(!items.length){ list.innerHTML='<div class="pitem dis">No players match</div>'; return; }
+  const frag=document.createDocumentFragment();
   items.forEach((it,i)=>{
     const c=CLUB_BY_NAME[it.p.club];
     const d=document.createElement('div');
@@ -855,8 +859,12 @@ function buildList(){
     d.innerHTML=crest(it.p.club,20)+`<div><div class="nm">${esc(it.p.name)}</div>
       <div class="meta">(${c?c.code:'—'}, ${it.p.pos.join('/')})</div></div>`;
     if(!it.dis) d.onclick=()=>selectPlayer(it.p);
-    d.dataset.i=i; list.appendChild(d);
+    d.dataset.i=i; frag.appendChild(d);
   });
+  if(total>CAP){ const more=document.createElement('div'); more.className='pmore';
+    more.textContent=`Showing ${CAP} of ${total} — type to search or pick a club to narrow.`;
+    frag.appendChild(more); }
+  list.appendChild(frag);
 }
 function selectPlayer(p){
   const sq=state.squads[P.si]; const slot=(P.kind==='field'?sq.field:sq.bench)[P.idx];
