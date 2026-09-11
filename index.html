@@ -297,7 +297,8 @@
     <button class="create" id="pCreate">&#43; Create custom player</button>
     <div class="customform" id="pCustomForm" hidden>
       <input class="search" id="pCustomName" type="text" placeholder="Custom player name" autocomplete="off">
-      <select class="cselect" id="pCustomClub"></select>
+      <div class="clublabel" style="padding:2px 0 2px">Club — <span id="pCustomClubName">None</span></div>
+      <div class="clubpick" id="pCustomPicker"></div>
       <button class="btn blue" id="pCustomAdd">Add</button>
     </div>
   </div>
@@ -855,22 +856,29 @@ function selectPlayer(p){
   advanceClock();
   closePanel(); commit();
 }
-function openCustomForm(){
-  const sel=$('#pCustomClub');
-  const spun=state.activeClub;
+function buildCustomPicker(){
+  const box=$('#pCustomPicker'); box.innerHTML='';
   const sorted=CLUBS.map(c=>c.name).sort((a,b)=>a.localeCompare(b));
-  sel.innerHTML=(spun?`<option value="${esc(spun)}">Current spun club — ${esc(spun)}</option>`:'')+
-    '<option value="">No club (grey)</option>'+
-    sorted.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
-  sel.value=(P&&P.club!=='ALL')?P.club:(spun||'');
+  const mk=(val,html,cls)=>{ const b=document.createElement('button'); b.type='button';
+    b.className='cchip'+(cls?' '+cls:'')+(P.customClub===val?' on':''); b.innerHTML=html;
+    b.onclick=()=>{ P.customClub=val; buildCustomPicker(); };
+    box.appendChild(b); return b; };
+  mk('','None','all');
+  sorted.forEach(n=>mk(n, crest(n,16)+`<span>${CLUB_BY_NAME[n].code}</span>`));
+  $('#pCustomClubName').textContent=P.customClub||'None';
+  const on=box.querySelector('.cchip.on'); if(on) on.scrollIntoView({inline:'center',block:'nearest'});
+}
+function openCustomForm(){
+  P.customClub=(P&&P.club!=='ALL')?P.club:(state.activeClub||'');
   $('#pCustomName').value='';
   $('#pCreate').style.display='none';
   $('#pCustomForm').hidden=false;
+  buildCustomPicker();
   setTimeout(()=>$('#pCustomName').focus(),10);
 }
 function addCustom(){
   const name=$('#pCustomName').value.trim(); if(!name){ $('#pCustomName').focus(); return; }
-  const club=$('#pCustomClub').value||null;
+  const club=(P&&P.customClub)||null;
   const sq=state.squads[P.si]; const slot=(P.kind==='field'?sq.field:sq.bench)[P.idx];
   pushUndo();
   slot.player={name, club, pos:[P.label==='B'?'ST':P.label], custom:true};
@@ -1020,6 +1028,7 @@ function enableDragScroll(el){
   el.addEventListener('wheel',e=>{ if(e.deltaY&&!e.shiftKey){ el.scrollLeft+=e.deltaY; e.preventDefault(); } },{passive:false});
 }
 enableDragScroll($('#pClubPicker'));
+enableDragScroll($('#pCustomPicker'));
 
 $('#addSquadBtn').addEventListener('click',()=>{
   if(state.squads.length>=8){ toast('Max 8 squads'); return; }
