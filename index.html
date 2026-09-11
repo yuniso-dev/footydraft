@@ -168,6 +168,11 @@
     color:#fff;padding:11px 13px;border-radius:11px;font-size:14px}
   #panel .search:focus{outline:none;border-color:var(--blue)}
   .clublabel{font-size:10px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;padding:0 16px 5px}
+  .clubhead{display:flex;align-items:center;gap:8px;padding:0 16px 5px}
+  .clubhead .clublabel{padding:0}
+  .clubsearch{margin-left:auto;background:#000;border:1px solid var(--line2);color:#fff;-webkit-text-fill-color:#fff;
+    border-radius:8px;padding:5px 9px;font-size:12px;width:130px;max-width:45%}
+  .clubsearch:focus{outline:none;border-color:var(--blue)}
   .clubpick{display:flex;gap:6px;overflow-x:auto;padding:0 16px 10px;scrollbar-width:none;-ms-overflow-style:none;cursor:grab;user-select:none}
   .clubpick::-webkit-scrollbar{display:none}
   .clubpick.dragging{cursor:grabbing}
@@ -286,7 +291,8 @@
     <button class="pmclose" id="pClose" title="Close (Esc)">&times;</button>
   </div>
   <input class="search" id="pSearch" type="text" autocomplete="off" spellcheck="false">
-  <div class="clublabel">Club</div>
+  <div class="clubhead"><span class="clublabel">Club</span>
+    <input class="clubsearch" id="pClubSearch" type="text" placeholder="Filter clubs…" autocomplete="off" spellcheck="false"></div>
   <div class="clubpick" id="pClubPicker"></div>
   <div class="togs">
     <label><input type="checkbox" id="pShowAll"> All positions</label>
@@ -297,7 +303,8 @@
     <button class="create" id="pCreate">&#43; Create custom player</button>
     <div class="customform" id="pCustomForm" hidden>
       <input class="search" id="pCustomName" type="text" placeholder="Custom player name" autocomplete="off">
-      <div class="clublabel" style="padding:2px 0 2px">Club — <span id="pCustomClubName">None</span></div>
+      <div class="clubhead" style="padding:2px 0 2px"><span class="clublabel">Club — <span id="pCustomClubName">None</span></span>
+        <input class="clubsearch" id="pCustomSearch" type="text" placeholder="Filter clubs…" autocomplete="off" spellcheck="false"></div>
       <div class="clubpick" id="pCustomPicker"></div>
       <button class="btn blue" id="pCustomAdd">Add</button>
     </div>
@@ -806,20 +813,22 @@ function openPanel(si,kind,idx){
   $('#pSlot').textContent=slot.label;
   $('#pSearch').value=''; $('#pSearch').placeholder='Search '+(slot.label==='B'?'players':slot.label)+'…';
   $('#pHideAT').checked=false; $('#pShowAll').checked=false;
+  $('#pClubSearch').value='';
   $('#pCustomForm').hidden=true; $('#pCreate').style.display='';
   scrim.style.display='block'; panel.style.display='flex';
   buildClubPicker(); buildList();
   setTimeout(()=>$('#pSearch').focus(),10);
 }
+function clubMatches(c,q){ return !q || c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q); }
 function buildClubPicker(){
   const box=$('#pClubPicker'); box.innerHTML='';
+  const q=($('#pClubSearch').value||'').trim().toLowerCase();
   const mk=(val,html,cls)=>{ const b=document.createElement('button');
     b.className='cchip'+(cls?' '+cls:'')+(P.club===val?' on':''); b.innerHTML=html;
     b.onclick=()=>{ P.club=val; buildClubPicker(); buildList(); $('#pSearch').focus(); };
     box.appendChild(b); return b; };
   mk('ALL','All clubs','all');
-  CLUBS.forEach(c=>mk(c.name, crest(c.name,16)+`<span>${c.code}</span>`));
-  // scroll the active chip into view
+  CLUBS.filter(c=>clubMatches(c,q)).forEach(c=>mk(c.name, crest(c.name,16)+`<span>${c.code}</span>`));
   const on=box.querySelector('.cchip.on'); if(on) on.scrollIntoView({inline:'center',block:'nearest'});
 }
 function buildList(){
@@ -858,7 +867,9 @@ function selectPlayer(p){
 }
 function buildCustomPicker(){
   const box=$('#pCustomPicker'); box.innerHTML='';
-  const sorted=CLUBS.map(c=>c.name).sort((a,b)=>a.localeCompare(b));
+  const q=($('#pCustomSearch').value||'').trim().toLowerCase();
+  const sorted=CLUBS.map(c=>c.name).sort((a,b)=>a.localeCompare(b))
+    .filter(n=>clubMatches(CLUB_BY_NAME[n],q));
   const mk=(val,html,cls)=>{ const b=document.createElement('button'); b.type='button';
     b.className='cchip'+(cls?' '+cls:'')+(P.customClub===val?' on':''); b.innerHTML=html;
     b.onclick=()=>{ P.customClub=val; buildCustomPicker(); };
@@ -870,7 +881,7 @@ function buildCustomPicker(){
 }
 function openCustomForm(){
   P.customClub=(P&&P.club!=='ALL')?P.club:(state.activeClub||'');
-  $('#pCustomName').value='';
+  $('#pCustomName').value=''; $('#pCustomSearch').value='';
   $('#pCreate').style.display='none';
   $('#pCustomForm').hidden=false;
   buildCustomPicker();
@@ -894,6 +905,8 @@ function moveHi(dir){
   const cur=list.querySelector(`[data-i="${P.hi}"]`); if(cur){cur.classList.add('hi');cur.scrollIntoView({block:'nearest'});}
 }
 $('#pSearch').addEventListener('input',buildList);
+$('#pClubSearch').addEventListener('input',buildClubPicker);
+$('#pCustomSearch').addEventListener('input',buildCustomPicker);
 $('#pSearch').addEventListener('keydown',e=>{
   if(e.key==='ArrowDown'){e.preventDefault();moveHi(1);}
   else if(e.key==='ArrowUp'){e.preventDefault();moveHi(-1);}
